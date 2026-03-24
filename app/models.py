@@ -1,7 +1,7 @@
 # app/models.py
 import uuid
 import datetime
-from sqlalchemy import String, ForeignKey, Uuid, DateTime, Float, Column
+from sqlalchemy import String, ForeignKey, Uuid, DateTime, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -11,7 +11,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     password: Mapped[str] = mapped_column(String(100), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), default="user") # 'user' или 'admin'
+    role: Mapped[str] = mapped_column(String(20), default="user")
 
     tokens: Mapped[list["Token"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     ads: Mapped[list["Advertisement"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
@@ -23,7 +23,8 @@ class Token(Base):
     creation_time: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
-    user: Mapped[User] = relationship(back_populates="tokens")
+    # Добавили lazy="joined" для доступа к ролям в auth.py
+    user: Mapped[User] = relationship(back_populates="tokens", lazy="joined")
 
 class Advertisement(Base):
     __tablename__ = "advertisement"
@@ -34,14 +35,4 @@ class Advertisement(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
-    owner: Mapped[User] = relationship(back_populates="ads")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "title": self.title,
-            "description": self.description,
-            "price": self.price,
-            "author": self.owner.username if self.owner else "Unknown",
-            "created_at": self.created_at.isoformat()
-        }
+    owner: Mapped[User] = relationship(back_populates="ads", lazy="joined")

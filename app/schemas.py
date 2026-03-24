@@ -7,6 +7,9 @@ from typing import Optional
 class IdResponse(BaseModel):
     id: int
 
+class StatusResponse(BaseModel):
+    status: str
+
 class CreateUserRequest(BaseModel):
     username: str
     password: str
@@ -24,6 +27,11 @@ class AdCreate(BaseModel):
     title: str
     description: str
     price: float
+
+class AdUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
 
 class AdResponse(BaseModel):
     id: int

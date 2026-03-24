@@ -1,18 +1,16 @@
 # app/main.py
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 import models, schemas
 from database import engine, Base, get_db_session
-from auth import hash_password, check_password, check_token
+from auth import hash_password, check_password, check_token, check_access
 
-# Вместо отдельного lifespan.py пишем прямо здесь, как на лекции
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
-        # При старте создаем таблицы
         await conn.run_sync(Base.metadata.create_all)
     yield
     await engine.dispose()
@@ -27,7 +25,10 @@ async def create_user(user_data: schemas.CreateUserRequest, db: AsyncSession = D
         role=user_data.role
     )
     db.add(new_user)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        raise HTTPException(status_code=400, detail="User already exists")
     await db.refresh(new_user)
     return {"id": new_user.id}
 
@@ -39,7 +40,6 @@ async def login(login_data: schemas.LoginRequest, db: AsyncSession = Depends(get
     if user is None or not check_password(login_data.password, user.password):
         raise HTTPException(status_code=401, detail="Wrong login/pass")
     
-    # Создаем UUID токен в базе
     new_token = models.Token(user_id=user.id)
     db.add(new_token)
     await db.commit()
@@ -52,7 +52,6 @@ async def create_ad(
     token: models.Token = Depends(check_token), 
     db: AsyncSession = Depends(get_db_session)
 ):
-    # Привязываем объявление к пользователю из токена
     new_ad = models.Advertisement(**data.model_dump(), user_id=token.user_id)
     db.add(new_ad)
     await db.commit()
@@ -64,5 +63,41 @@ async def get_ad(ad_id: int, db: AsyncSession = Depends(get_db_session)):
     ad = await db.get(models.Advertisement, ad_id)
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
-    # Возвращаем данные (Pydantic сам сконвертирует модель)
     return ad
+
+@app.patch("/advertisement/{ad_id}", response_model=schemas.IdResponse)
+async def update_ad(
+    ad_id: int, 
+    data: schemas.AdUpdate, 
+    token: models.Token = Depends(check_token), 
+    db: AsyncSession = Depends(get_db_session)
+):
+    ad = await db.get(models.Advertisement, ad_id)
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    
+    # ПРОВЕРКА ПРАВ
+    check_access(token.user, ad)
+    
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(ad, key, value)
+    
+    await db.commit()
+    return {"id": ad.id}
+
+@app.delete("/advertisement/{ad_id}", response_model=schemas.StatusResponse)
+async def delete_ad(
+    ad_id: int, 
+    token: models.Token = Depends(check_token), 
+    db: AsyncSession = Depends(get_db_session)
+):
+    ad = await db.get(models.Advertisement, ad_id)
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    
+    # ПРОВЕРКА ПРАВ
+    check_access(token.user, ad)
+    
+    await db.delete(ad)
+    await db.commit()
+    return {"status": "deleted"}
